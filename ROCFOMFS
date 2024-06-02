@@ -155,10 +155,16 @@ class ROCFOMFS (fuse.Fuse):
         self._ftree : dict[str, FNode] = dict()
         populate_root(self._dtree)
 
+
     def main (self):
         opts, args = self.cmdline
-        if not (llist := opts.llist):
-            llist = list()
+        llist = list()
+
+        if (lpath := opts.layer_file):
+            xlist = _parse_layer_file(lpath)
+            llist.extend(xlist)
+        if (xlist := opts.layer_list):
+            llist.extend(xlist)
 
         for lpath in llist:
             lpath = os.path.abspath(lpath)
@@ -166,14 +172,31 @@ class ROCFOMFS (fuse.Fuse):
 
         super().main()
 
+def _parse_layer_file (lpath : str):
+    llist = list()
+    with open(lpath, 'rt') as lfile:
+        for lline in lfile:
+            lline = lline.strip()
+            if lline.startswith('#'):
+                continue
+            llist.append(lline)
+    return llist
+
 def program ():
     server = ROCFOMFS()
     server.parser.add_option(
         '--layer', '-l', 
-        dest = 'llist', 
+        dest = 'layer_list',
         action = 'append', 
         metavar = '@',
         help = 'add overlay layer at @'
+    )
+    server.parser.add_option(
+        '--layerlist', '-L',
+        dest = 'layer_file',
+        action = 'store',
+        metavar = '@',
+        help = 'add overlay layers from file @'
     )
     server.parse()
     server.main()

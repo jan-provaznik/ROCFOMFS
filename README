@@ -5,15 +5,44 @@
 Look, it is not my fault. I'm just trying my best here to make Fallout 4 mods
 work on Linux. It is the unwanted legacy of case insensitive file systems.
 
-The essential idea is to have separate directories for individual Fallout 4
-mods, take the following structure for example,
+Introduction
 
-  mods/TrueStorms
-  mods/LongerPowerLines
-  mods/ScrapEverything
+  The essential idea is to have separate directories for individual Fallout 4
+  mods, take the following structure for example,
 
-we want to merge those in some pre-defined order with the standard Fallout 4
-data directory. Individual mods might override the same files. The overlay
-exposes the final version of the file, as if it was overwritten by the final
-mod.
+    Mods/TrueStorms
+    Mods/LongerPowerLines
+    Mods/ScrapEverything
+
+  we want to merge those in some pre-defined order with the standard Fallout 4
+  data directory. Individual mods might override the same files. The overlay
+  exposes the final version of the file, as if it was overwritten by the final
+  mod.
+
+  ROCFOMFS uses FUSE to expose a case insensitive read only virtual file system
+  that merges a list of overlapping directory layers into a single directory
+  tree. Layers can be specified both directly over the command line (-l option)
+  and also using a layer specification file (-L option).
+
+  Layer precedence is based on the position, either within the specification file
+  or on the command line. The last layer takes precedence. The layer file is
+  processed first.
+
+Example use
+
+  Assumptions
+
+    (1) ROCFOMFS is executable and located inside the Fallout 4 directory
+    (2) The original Data directory has been renamed to Data.Vanilla
+
+  ./ROCFOMFS \
+    -l Data.Vanilla \
+    -l Mods/TrueStorms \
+    -l Mods/LongerPowerLines \
+    -l Mods/ScrapEverything \
+    Data
+
+Installation and requirements
+
+  ROCFOMFS requires python-fuse library.
 
