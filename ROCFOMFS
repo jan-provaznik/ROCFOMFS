@@ -32,7 +32,7 @@ def foldcase (what):
 # We care about the actual paths in the filesystem to the individual files.
 
 def pathwrap (path):
-  return os.path.realpath(os.path.join('/', path))
+  return os.path.normpath(os.path.join('/', path))
 
 def processlayer (lpath, dtree, ftree):
   for (rpath, dlist, flist) in os.walk(lpath):
@@ -78,24 +78,19 @@ def processlayer (lpath, dtree, ftree):
 dtree = dict()
 ftree = dict()
 llist = [
-  '/tmp/fuss/testdir/1',
-  '/tmp/fuss/testdir/2',
-  '/tmp/fuss/testdir/3',
-  '/tmp/fuss/testdir/4',
+  'mods/TrueStorms',
+  'mods/LongerPowerLines',
+  'mods/ScrapEverything'
 ]
 
-#dtree['/'] = DNode(
-#  name_fold = '/',
-#  path_fold = '/'
-#)
-
 for lpath in llist:
+  lpath = os.path.abspath(lpath)
   processlayer(lpath, dtree, ftree)
 
-for dnode in dtree.values():
-  print(dnode.name_fold, ':', dnode.path_fold)
-for fnode in ftree.values():
-  print(fnode.name_fold, ':', fnode.path_fold)
+# for dnode in dtree.values():
+#   print(dnode.name_fold, ':', dnode.path_fold)
+# for fnode in ftree.values():
+#   print(fnode.name_fold, ':', fnode.path_fold)
 
 import fuse
 import errno

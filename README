@@ -8,10 +8,9 @@ work on Linux. It is the unwanted legacy of case insensitive file systems.
 The essential idea is to have separate directories for individual Fallout 4
 mods, take the following structure for example,
 
-  mods/ScrapEverything
   mods/TrueStorms
-  mods/DarkerNights
   mods/LongerPowerLines
+  mods/ScrapEverything
 
 we want to merge those in some pre-defined order with the standard Fallout 4
 data directory. Individual mods might override the same files. The overlay
