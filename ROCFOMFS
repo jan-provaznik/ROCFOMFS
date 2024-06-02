@@ -177,6 +177,8 @@ def _parse_layer_file (lpath : str):
     with open(lpath, 'rt') as lfile:
         for lline in lfile:
             lline = lline.strip()
+            if not lline:
+                continue
             if lline.startswith('#'):
                 continue
             llist.append(lline)
