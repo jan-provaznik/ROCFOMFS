@@ -31,9 +31,12 @@ def foldcase (what):
 # We case-fold files and place them into appropriate case-folded directories.
 # We care about the actual paths in the filesystem to the individual files.
 
+def pathwrap (path):
+  return os.path.realpath(os.path.join('/', path))
+
 def processlayer (lpath, dtree, ftree):
   for (rpath, dlist, flist) in os.walk(lpath):
-    rfold = foldcase(os.path.relpath(rpath, lpath))
+    rfold = pathwrap(foldcase(os.path.relpath(rpath, lpath)))
     if rfold in dtree:
       rnode = dtree.get(rfold)
     else:
@@ -46,7 +49,7 @@ def processlayer (lpath, dtree, ftree):
     
     for dname in dlist:
       dname = foldcase(dname)
-      dfold = os.path.join(rfold, dname)
+      dfold = pathwrap(os.path.join(rfold, dname))
       if dfold not in dtree:
         dnode = DNode(
           name_fold = dname,
@@ -58,7 +61,7 @@ def processlayer (lpath, dtree, ftree):
     for fname in flist:
       fpath = os.path.join(rpath, fname)
       fname = foldcase(fname)
-      ffold = os.path.join(rfold, fname)
+      ffold = pathwrap(os.path.join(rfold, fname))
 
       if ffold in ftree:
         fnode = ftree.get(ffold)
@@ -78,9 +81,85 @@ llist = [
   '/tmp/fuss/testdir/1',
   '/tmp/fuss/testdir/2',
   '/tmp/fuss/testdir/3',
+  '/tmp/fuss/testdir/4',
 ]
+
+#dtree['/'] = DNode(
+#  name_fold = '/',
+#  path_fold = '/'
+#)
 
 for lpath in llist:
   processlayer(lpath, dtree, ftree)
+
+for dnode in dtree.values():
+  print(dnode.name_fold, ':', dnode.path_fold)
 for fnode in ftree.values():
-  print(fnode)
+  print(fnode.name_fold, ':', fnode.path_fold)
+
+import fuse
+import errno
+import stat
+
+fuse.fuse_python_api = (0, 2)
+
+def getattr_dnode (node):
+  info = fuse.Stat()
+  info.st_mode = stat.S_IFDIR | 0o500
+  info.st_ino = node.node_osid
+  info.st_nlink = len(node.node_list)
+  return info
+
+def getattr_fnode (node):
+  info = fuse.Stat()
+  info.st_mode = stat.S_IFREG | 0o400
+  info.st_ino = node.node_osid
+  info.st_size = os.path.getsize(node.path_real)
+  info.st_nlink = 1
+  return info
+
+class ROCFOMFS (fuse.Fuse):
+  def getattr (self, path):
+    if path in dtree:
+      return getattr_dnode(dtree.get(path))
+    if path in ftree:
+      return getattr_fnode(ftree.get(path))
+    return - errno.ENOENT
+
+  def access (self, path, mode):
+    if path in dtree:
+      return 0
+    if path in ftree:
+      return 0
+    return - errno.ENOENT
+
+  def readdir (self, path, offset):
+    if path not in dtree:
+      return
+    dnode = dtree.get(path)
+    for node in dnode.node_list:
+      yield fuse.Direntry(node.name_fold)
+    yield fuse.Direntry('.')
+    yield fuse.Direntry('..')
+
+  class ROCFOMFSFile:
+    def __init__ (self, path, flags, * mode):
+      self.path = path
+      self.node = ftree.get(path)
+
+    def fgetattr (self):
+      return getattr_fnode(self.node)
+    def read (self, length, offset):
+      with open(self.node.path_real, 'rb') as file:
+        file.seek(offset)
+        return file.read(length)
+      
+  def __init__ (self):
+    fuse.Fuse.__init__(self)
+    self.file_class = self.ROCFOMFSFile
+  
+
+s = ROCFOMFS()
+s.parse()
+s.main()
+
