@@ -1,0 +1,86 @@
+#!/bin/env python3
+#
+
+import os
+import os.path
+import itertools as it
+import dataclasses as dc
+
+osid_lock = it.count()
+def next_osid ():
+  return next(osid_lock)
+
+@dc.dataclass
+class DNode:
+  name_fold : str
+  path_fold : str
+  node_list : list = dc.field(default_factory = list)
+  node_osid : int = dc.field(default_factory = next_osid)
+
+@dc.dataclass
+class FNode:
+  name_fold : str
+  path_fold : str
+  path_real : str
+  node_osid : int = dc.field(default_factory = next_osid)
+
+def foldcase (what):
+  return str(what).lower()
+
+# We case-fold and merge the directory tree (dtree). 
+# We case-fold files and place them into appropriate case-folded directories.
+# We care about the actual paths in the filesystem to the individual files.
+
+def processlayer (lpath, dtree, ftree):
+  for (rpath, dlist, flist) in os.walk(lpath):
+    rfold = foldcase(os.path.relpath(rpath, lpath))
+    if rfold in dtree:
+      rnode = dtree.get(rfold)
+    else:
+      rname = os.path.basename(rfold)
+      rnode = DNode(
+        name_fold = rname,
+        path_fold = rfold
+      )
+      dtree[rfold] = rnode
+    
+    for dname in dlist:
+      dname = foldcase(dname)
+      dfold = os.path.join(rfold, dname)
+      if dfold not in dtree:
+        dnode = DNode(
+          name_fold = dname,
+          path_fold = dfold
+        )
+        rnode.node_list.append(dnode)
+        dtree[dfold] = dnode
+
+    for fname in flist:
+      fpath = os.path.join(rpath, fname)
+      fname = foldcase(fname)
+      ffold = os.path.join(rfold, fname)
+
+      if ffold in ftree:
+        fnode = ftree.get(ffold)
+        fnode.path_real = fpath
+      else:
+        fnode = FNode(
+          name_fold = fname,
+          path_fold = ffold,
+          path_real = fpath
+        )
+        rnode.node_list.append(fnode)
+        ftree[ffold] = fnode
+
+dtree = dict()
+ftree = dict()
+llist = [
+  '/tmp/fuss/testdir/1',
+  '/tmp/fuss/testdir/2',
+  '/tmp/fuss/testdir/3',
+]
+
+for lpath in llist:
+  processlayer(lpath, dtree, ftree)
+for fnode in ftree.values():
+  print(fnode)
