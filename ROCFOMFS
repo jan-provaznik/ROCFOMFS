@@ -3,77 +3,91 @@
 
 import os
 import os.path
-import itertools as it
+import threading
+import itertools
 import dataclasses as dc
 
-osid_lock = it.count()
+# Unique inode identifiers
+#
+
+osid_head = itertools.count()
+osid_lock = threading.Lock()
+
 def next_osid ():
-  return next(osid_lock)
+    with osid_lock:
+        return next(osid_head)
+
+# Structures: file and directory nodes
+#
 
 @dc.dataclass
 class DNode:
-  name_fold : str
-  path_fold : str
-  node_list : list = dc.field(default_factory = list)
-  node_osid : int = dc.field(default_factory = next_osid)
+    name_fold : str
+    path_fold : str
+    node_list : list = dc.field(default_factory = list)
+    node_osid : int = dc.field(default_factory = next_osid)
 
 @dc.dataclass
 class FNode:
-  name_fold : str
-  path_fold : str
-  path_real : str
-  node_osid : int = dc.field(default_factory = next_osid)
+    name_fold : str
+    path_fold : str
+    path_real : str
+    node_osid : int = dc.field(default_factory = next_osid)
 
-def foldcase (what):
-  return str(what).lower()
+# Case folding (lowercase)
+#
 
-def normpath (path):
+def foldcase (what : str):
+    return str(what).lower()
+
+# Path renormalization (this is a mess)
+#
+
+def normpath (path : str):
   return os.path.normpath(os.path.join('/', path))
 
-# We case-fold and merge the directory tree (dtree). 
-# We case-fold files and place them into appropriate case-folded directories.
-# We care about the actual paths in the filesystem to the individual files.
+# Overlay layer processing
+#
+# (1) We case-fold and merge the directory tree (dtree). 
+# (2) We case-fold files and place them into appropriate case-folded directories.
+# (3) We care about the actual paths in the filesystem to the individual files.
+#
 
-def processlayer (lpath, dtree, ftree):
-  for (rpath, dlist, flist) in os.walk(lpath):
-    rfold = normpath(foldcase(os.path.relpath(rpath, lpath)))
-    if rfold in dtree:
-      rnode = dtree.get(rfold)
-    else:
-      rname = os.path.basename(rfold)
-      rnode = DNode(
-        name_fold = rname,
-        path_fold = rfold
-      )
-      dtree[rfold] = rnode
+def processlayer (lpath : str, dtree : dict[str, DNode], ftree : dict[str, FNode]):
+    for (rpath, dlist, flist) in os.walk(lpath):
+        rfold = normpath(foldcase(os.path.relpath(rpath, lpath)))
+        if rfold in dtree:
+            rnode = dtree.get(rfold)
+        else:
+            rname = os.path.basename(rfold)
+            rnode = DNode(name_fold = rname, path_fold = rfold)
+            dtree[rfold] = rnode
+
+        # Process children directories
     
-    for dname in dlist:
-      dname = foldcase(dname)
-      dfold = normpath(os.path.join(rfold, dname))
-      if dfold not in dtree:
-        dnode = DNode(
-          name_fold = dname,
-          path_fold = dfold
-        )
-        rnode.node_list.append(dnode)
-        dtree[dfold] = dnode
+        for dname in dlist:
+            dname = foldcase(dname)
+            dfold = normpath(os.path.join(rfold, dname))
+            if dfold not in dtree:
+                dnode = DNode(name_fold = dname, path_fold = dfold)
+                rnode.node_list.append(dnode)
+                dtree[dfold] = dnode
 
-    for fname in flist:
-      fpath = os.path.join(rpath, fname)
-      fname = foldcase(fname)
-      ffold = normpath(os.path.join(rfold, fname))
+        # Process children files
 
-      if ffold in ftree:
-        fnode = ftree.get(ffold)
-        fnode.path_real = fpath
-      else:
-        fnode = FNode(
-          name_fold = fname,
-          path_fold = ffold,
-          path_real = fpath
-        )
-        rnode.node_list.append(fnode)
-        ftree[ffold] = fnode
+        for fname in flist:
+            fpath = os.path.join(rpath, fname)
+            fname = foldcase(fname)
+            ffold = normpath(os.path.join(rfold, fname))
+
+            if ffold not in ftree:
+                fnode = FNode(name_fold = fname, path_fold = ffold, path_real = fpath)
+                rnode.node_list.append(fnode)
+                ftree[ffold] = fnode
+            else:
+                # Update the pre-existing file node with new path
+                fnode = ftree.get(ffold)
+                fnode.path_real = fpath
 
 import fuse
 import stat
@@ -98,65 +112,70 @@ def getattr_fnode (node):
   return info
 
 class ROCFOMFS (fuse.Fuse):
-  def getattr (self, path):
-    path = foldcase(path)
-    if path in dtree:
-      return getattr_dnode(dtree.get(path))
-    if path in ftree:
-      return getattr_fnode(ftree.get(path))
-    return - errno.ENOENT
+    def getattr (self, path):
+        path = foldcase(path)
+        if (node := self._dtree.get(path)):
+            return getattr_dnode(node)
+        if (node := self._ftree.get(path)):
+            return getattr_fnode(node)
+        return - errno.ENOENT
 
-  def access (self, path, mode):
-    path = foldcase(path)
-    if path in dtree:
-      return 0
-    if path in ftree:
-      return 0
-    return - errno.ENOENT
+    def access (self, path, mode):
+        path = foldcase(path)
+        if (path in self._dtree):
+            return 0
+        if (path in self._ftree):
+            return 0
+        return - errno.ENOENT
 
-  def readdir (self, path, offset):
-    path = foldcase(path)
-    if path not in dtree:
-      return
-    dnode = dtree.get(path)
-    for node in dnode.node_list:
-      yield fuse.Direntry(node.name_fold)
-    yield fuse.Direntry('.')
-    yield fuse.Direntry('..')
+    def readdir (self, path, offset):
+        path = foldcase(path)
+        if not (node := self._dtree.get(path)):
+            return - errno.ENOENT
+        for each in node.node_list:
+            yield fuse.Direntry(each.name_fold, ino = each.node_osid)
+        yield from [ fuse.Direntry('.'), fuse.Direntry('..') ]
 
-  class ROCFOMFSFile:
-    def __init__ (self, path, flags, * mode):
-      self.path = foldcase(path)
-      self.node = ftree.get(self.path)
-
-    def fgetattr (self):
-      return getattr_fnode(self.node)
-    def read (self, length, offset):
-      with open(self.node.path_real, 'rb') as file:
-        file.seek(offset)
-        return file.read(length)
+    def read (self, path, length, offset):
+        path = foldcase(path)
+        if not (node := self._ftree.get(path)):
+            return - errno.ENOENT
+        with open(node.path_real, 'rb') as file:
+            file.seek(offset)
+            return file.read(length)
       
-  def __init__ (self):
-    fuse.Fuse.__init__(self)
-    self.file_class = self.ROCFOMFSFile
+    def __init__ (self):
+        super().__init__()
+        self._dtree : dict[str, DNode] = dict()
+        self._ftree : dict[str, FNode] = dict()
+        self._dtree['/'] = DNode(name_fold = '/', path_fold = '/')
 
-dtree = dict()
-ftree = dict()
+    def main (self):
+        opts, args = self.cmdline
+        if not (llist := opts.llist):
+            llist = list()
 
-llist = [
-  '/tmp/fallout-4-gog-vanilla/Data/',
-  'mods/CBBE',
-  'mods/BDOHair',
-  'mods/TrueStorms',
-  'mods/LongerPowerLines',
-  'mods/ScrapEverything'
-]
+        for lpath in llist:
+            lpath = os.path.abspath(lpath)
+            processlayer(lpath, self._dtree, self._ftree)
 
-for lpath in llist:
-  lpath = os.path.abspath(lpath)
-  processlayer(lpath, dtree, ftree)
+        super().main()
+
+# llist = [
+#   '/tmp/fallout-4-gog-vanilla/Data/',
+#   'mods/CBBE',
+#   'mods/BDOHair',
+#   'mods/TrueStorms',
+#   'mods/LongerPowerLines',
+#   'mods/ScrapEverything'
+# ]
+# 
+# for lpath in llist:
+#   lpath = os.path.abspath(lpath)
+#   processlayer(lpath, dtree, ftree)
 
 server = ROCFOMFS()
+server.parser.add_option('-l', action = 'append', metavar = 'path', dest = 'llist', help = 'add overlay layer at path')
 server.parse()
 server.main()
 
