@@ -89,6 +89,11 @@ def processlayer (lpath : str, dtree : dict[str, DNode], ftree : dict[str, FNode
                 fnode = ftree.get(ffold)
                 fnode.path_real = fpath
 
+def populate_root (dtree : dict[str, DNode]):
+    rfold = '/'
+    rnode = DNode(name_fold = rfold, path_fold = rfold)
+    dtree[rfold] = rnode
+
 import fuse
 import stat
 import errno
@@ -148,7 +153,7 @@ class ROCFOMFS (fuse.Fuse):
         super().__init__()
         self._dtree : dict[str, DNode] = dict()
         self._ftree : dict[str, FNode] = dict()
-        self._dtree['/'] = DNode(name_fold = '/', path_fold = '/')
+        populate_root(self._dtree)
 
     def main (self):
         opts, args = self.cmdline
@@ -161,21 +166,18 @@ class ROCFOMFS (fuse.Fuse):
 
         super().main()
 
-# llist = [
-#   '/tmp/fallout-4-gog-vanilla/Data/',
-#   'mods/CBBE',
-#   'mods/BDOHair',
-#   'mods/TrueStorms',
-#   'mods/LongerPowerLines',
-#   'mods/ScrapEverything'
-# ]
-# 
-# for lpath in llist:
-#   lpath = os.path.abspath(lpath)
-#   processlayer(lpath, dtree, ftree)
+def program ():
+    server = ROCFOMFS()
+    server.parser.add_option(
+        '--layer', '-l', 
+        dest = 'llist', 
+        action = 'append', 
+        metavar = '@',
+        help = 'add overlay layer at @'
+    )
+    server.parse()
+    server.main()
 
-server = ROCFOMFS()
-server.parser.add_option('-l', action = 'append', metavar = 'path', dest = 'llist', help = 'add overlay layer at path')
-server.parse()
-server.main()
+if (__name__ == '__main__'):
+    program()
 
