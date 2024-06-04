@@ -1,0 +1,18 @@
+#!/bin/bash
+#
+
+set -e
+
+./ROCFOMFS \
+  -o nonempty \
+  -l test/tree/1 \
+  -l test/tree/2 \
+  -l test/tree/3 \
+  test/bind
+
+cat test/bind/HELLO.txt
+cat test/bind/hEllO.txt
+cat test/bind/yello.txt
+
+fusermount -u test/bind
+
