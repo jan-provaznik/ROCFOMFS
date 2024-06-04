@@ -56,14 +56,10 @@ def normpath (path : str):
 def processlayer (lpath : str, dtree : dict[str, DNode], ftree : dict[str, FNode]):
     for (rpath, dlist, flist) in os.walk(lpath):
         rfold = normpath(foldcase(os.path.relpath(rpath, lpath)))
-        if rfold in dtree:
-            rnode = dtree.get(rfold)
-        else:
+        if not (rnode := dtree.get(rfold)):
             rname = os.path.basename(rfold)
             rnode = DNode(name_fold = rname, path_fold = rfold)
             dtree[rfold] = rnode
-
-        # Process children directories
     
         for dname in dlist:
             dname = foldcase(dname)
@@ -73,21 +69,17 @@ def processlayer (lpath : str, dtree : dict[str, DNode], ftree : dict[str, FNode
                 rnode.node_list.append(dnode)
                 dtree[dfold] = dnode
 
-        # Process children files
-
         for fname in flist:
             fpath = os.path.join(rpath, fname)
             fname = foldcase(fname)
             ffold = normpath(os.path.join(rfold, fname))
 
-            if ffold not in ftree:
+            if (fnode := ftree.get(ffold)):
+                fnode.path_real = fpath
+            else:
                 fnode = FNode(name_fold = fname, path_fold = ffold, path_real = fpath)
                 rnode.node_list.append(fnode)
                 ftree[ffold] = fnode
-            else:
-                # Update the pre-existing file node with new path
-                fnode = ftree.get(ffold)
-                fnode.path_real = fpath
 
 def populate_root (dtree : dict[str, DNode]):
     rfold = '/'
@@ -100,7 +92,7 @@ import errno
 
 fuse.fuse_python_api = (0, 2)
 
-def getattr_dnode (node):
+def getattr_dnode (node : DNode):
   info = fuse.Stat()
   info.st_mode = stat.S_IFDIR | 0o500
   info.st_ino = node.node_osid
@@ -108,7 +100,7 @@ def getattr_dnode (node):
   info.st_nlink = len(node.node_list)
   return info
 
-def getattr_fnode (node):
+def getattr_fnode (node : FNode):
   info = fuse.Stat()
   info.st_mode = stat.S_IFREG | 0o400
   info.st_ino = node.node_osid
@@ -117,15 +109,15 @@ def getattr_fnode (node):
   return info
 
 class ROCFOMFS (fuse.Fuse):
-    def getattr (self, path):
+    def getattr (self, path : str):
         path = foldcase(path)
-        if (node := self._dtree.get(path)):
-            return getattr_dnode(node)
-        if (node := self._ftree.get(path)):
-            return getattr_fnode(node)
+        if (dnode := self._dtree.get(path)):
+            return getattr_dnode(dnode)
+        if (fnode := self._ftree.get(path)):
+            return getattr_fnode(fnode)
         return - errno.ENOENT
 
-    def access (self, path, mode):
+    def access (self, path : str, mode : int):
         path = foldcase(path)
         if (path in self._dtree):
             return 0
@@ -133,7 +125,7 @@ class ROCFOMFS (fuse.Fuse):
             return 0
         return - errno.ENOENT
 
-    def readdir (self, path, offset):
+    def readdir (self, path : str, offset : int):
         path = foldcase(path)
         if not (node := self._dtree.get(path)):
             return - errno.ENOENT
@@ -141,7 +133,7 @@ class ROCFOMFS (fuse.Fuse):
             yield fuse.Direntry(each.name_fold, ino = each.node_osid)
         yield from [ fuse.Direntry('.'), fuse.Direntry('..') ]
 
-    def read (self, path, length, offset):
+    def read (self, path : str, length : int, offset : int):
         path = foldcase(path)
         if not (node := self._ftree.get(path)):
             return - errno.ENOENT
