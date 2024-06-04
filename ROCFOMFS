@@ -69,7 +69,10 @@ def processlayer (lpath : str, dtree : dict[str, DNode], ftree : dict[str, FNode
                 rnode.node_list.append(dnode)
                 dtree[dfold] = dnode
 
-        for fname in flist:
+        # Sort files lexically,
+        # making 'YELLO' take precedence before 'yello' during the lookups.
+
+        for fname in sorted(flist):
             fpath = os.path.join(rpath, fname)
             fname = foldcase(fname)
             ffold = normpath(os.path.join(rfold, fname))
@@ -150,13 +153,15 @@ class ROCFOMFS (fuse.Fuse):
 
     def main (self):
         opts, args = self.cmdline
-        llist = list()
+        llist : list[str] = list()
 
         if (lpath := opts.layer_file):
             xlist = _parse_layer_file(lpath)
             llist.extend(xlist)
         if (xlist := opts.layer_list):
             llist.extend(xlist)
+
+        llist = list(set(llist))
 
         for lpath in llist:
             lpath = os.path.abspath(lpath)
